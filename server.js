@@ -19,7 +19,8 @@ import bannersRoutes from "./src/routes/banners.js";
 import adminBannersRoutes from "./src/routes/adminBanners.js";
 import adminUploadRoutes from "./src/routes/adminUploadRoutes.js";
 
-dotenv.config({ path: path.resolve("./.env") });
+dotenv.config();
+
 
 const app = express();
 
@@ -57,8 +58,11 @@ const PORT = process.env.PORT || 5000;
 
 connectDB(process.env.MONGO_URI)
   .then(() => {
-    app.listen(PORT, () => console.log(`✅ Server running http://localhost:${PORT}`));
-  })
+  app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Server running on port ${PORT}`);
+});
+
+  })  
   .catch((e) => {
     console.error("❌ DB connect failed", e);
     process.exit(1);
