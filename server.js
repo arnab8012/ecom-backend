@@ -30,7 +30,12 @@ const app = express();
 app.set("trust proxy", 1);
 
 // ✅ Basic security
-app.use(helmet());
+// (Render proxy + HTTPS এ compatible)
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  })
+);
 
 // ✅ Body parsers
 app.use(express.json({ limit: "10mb" }));
@@ -45,23 +50,30 @@ const allowList = rawOrigins
   .map((s) => s.trim())
   .filter(Boolean);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // Postman/curl এর মতো origin-less request allow
-      if (!origin) return cb(null, true);
+const corsOptions = {
+  origin: (origin, cb) => {
+    // Postman/curl এর মতো origin-less request allow
+    if (!origin) return cb(null, true);
 
-      // allowList খালি থাকলে সবাইকে allow (ডিবাগে সুবিধা)
-      if (allowList.length === 0) return cb(null, true);
+    // allowList খালি থাকলে সবাইকে allow (ডিবাগে সুবিধা)
+    if (allowList.length === 0) return cb(null, true);
 
-      // allow matched origins
-      if (allowList.includes(origin)) return cb(null, true);
+    // allow matched origins
+    if (allowList.includes(origin)) return cb(null, true);
 
-      return cb(new Error(`CORS blocked for origin: ${origin}`));
-    },
-    credentials: true,
-  })
-);
+    // ❌ ব্লক (এটা ব্রাউজারে দেখা যাবে না, কিন্তু লগে থাকবে)
+    return cb(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+  optionsSuccessStatus: 204, // কিছু ব্রাউজারে 200/204 issue এড়ায়
+  preflightContinue: false,
+};
+
+// ✅ Apply CORS
+app.use(cors(corsOptions));
+
+// ✅ Explicitly handle preflight for all routes
+app.options("*", cors(corsOptions));
 
 app.use(morgan("dev"));
 
@@ -69,10 +81,10 @@ app.use(morgan("dev"));
 app.get("/", (req, res) => res.json({ ok: true, message: "E-commerce API running" }));
 
 // ✅ (Optional) Serve static uploads if your upload route saves files locally
-// যদি তোমার backend/src/uploads বা backend/uploads থাকে, তাহলে এটা কাজে লাগবে।
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// uploads folder যদি থাকে (backend/uploads)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ✅ Public Routes
