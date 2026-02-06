@@ -29,8 +29,7 @@ const app = express();
 // ✅ Render / proxy friendly
 app.set("trust proxy", 1);
 
-// ✅ Basic security
-// (Render proxy + HTTPS এ compatible)
+// ✅ Basic security (Render proxy + HTTPS compatible)
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
@@ -43,13 +42,14 @@ app.use(express.urlencoded({ extended: true }));
 
 // ✅ CORS (supports single or multiple origins)
 // .env উদাহরণ:
-// CLIENT_ORIGIN=https://thecuriousempire.com,https://www.thecuriousempire.com,http://localhost:5173
+// CLIENT_ORIGIN=https://your-frontend.onrender.com,https://thecuriousempire.com,https://www.thecuriousempire.com,http://localhost:5173
 const rawOrigins = process.env.CLIENT_ORIGIN || "";
 const allowList = rawOrigins
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
+// ✅ Safe CORS options
 const corsOptions = {
   origin: (origin, cb) => {
     // Postman/curl এর মতো origin-less request allow
@@ -61,11 +61,12 @@ const corsOptions = {
     // allow matched origins
     if (allowList.includes(origin)) return cb(null, true);
 
-    // ❌ ব্লক (এটা ব্রাউজারে দেখা যাবে না, কিন্তু লগে থাকবে)
-    return cb(new Error(`CORS blocked for origin: ${origin}`));
+    // ❌ Block but don't throw (server crash হবে না)
+    console.log("❌ CORS blocked origin:", origin);
+    return cb(null, false);
   },
   credentials: true,
-  optionsSuccessStatus: 204, // কিছু ব্রাউজারে 200/204 issue এড়ায়
+  optionsSuccessStatus: 204,
   preflightContinue: false,
 };
 
@@ -78,9 +79,11 @@ app.options("*", cors(corsOptions));
 app.use(morgan("dev"));
 
 // ✅ Health check
-app.get("/", (req, res) => res.json({ ok: true, message: "E-commerce API running" }));
+app.get("/", (req, res) =>
+  res.json({ ok: true, message: "E-commerce API running" })
+);
 
-// ✅ (Optional) Serve static uploads if your upload route saves files locally
+// ✅ Serve static uploads if your upload route saves files locally
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -111,7 +114,10 @@ connectDB(process.env.MONGO_URI)
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`✅ Server running on port ${PORT}`);
-      console.log("✅ Allowed CLIENT_ORIGIN:", allowList.length ? allowList : "(ALL - not set)");
+      console.log(
+        "✅ Allowed CLIENT_ORIGIN:",
+        allowList.length ? allowList : "(ALL - not set)"
+      );
     });
   })
   .catch((e) => {
