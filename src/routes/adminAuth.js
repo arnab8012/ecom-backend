@@ -7,7 +7,11 @@ const router = express.Router();
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
-    // ✅ trim + normalize
+    // ✅ DEBUG (Deploy এর পরে কাজ হলে চাইলে remove করবে)
+    console.log("🔥 ADMIN LOGIN HIT");
+    console.log("CONTENT-TYPE:", req.headers["content-type"]);
+    console.log("BODY:", req.body);
+
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "").trim();
 
@@ -30,7 +34,7 @@ router.post(
       expiresIn: "7d",
     });
 
-    res.json({ ok: true, token, admin: { email } });
+    return res.json({ ok: true, token, admin: { email } });
   })
 );
 
