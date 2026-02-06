@@ -29,66 +29,56 @@ const app = express();
 // ✅ Render / proxy friendly
 app.set("trust proxy", 1);
 
-// ✅ Basic security (Render proxy + HTTPS compatible)
+// ✅ Basic security
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
   })
 );
 
-// ✅ Body parsers
+// ✅ Body parsers (IMPORTANT: CORS এর আগেই রাখো)
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ CORS (supports single or multiple origins)
-// .env উদাহরণ:
-// CLIENT_ORIGIN=https://your-frontend.onrender.com,https://thecuriousempire.com,https://www.thecuriousempire.com,http://localhost:5173
+// ✅ CORS allowlist from env (comma-separated)
 const rawOrigins = process.env.CLIENT_ORIGIN || "";
 const allowList = rawOrigins
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
-// ✅ Safe CORS options
 const corsOptions = {
   origin: (origin, cb) => {
-    // Postman/curl এর মতো origin-less request allow
+    // Postman/curl/hoppscotch sometimes origin-less
     if (!origin) return cb(null, true);
 
-    // allowList খালি থাকলে সবাইকে allow (ডিবাগে সুবিধা)
+    // if allowList empty => allow all (debug friendly)
     if (allowList.length === 0) return cb(null, true);
 
-    // allow matched origins
     if (allowList.includes(origin)) return cb(null, true);
 
-    // ❌ Block but don't throw (server crash হবে না)
     console.log("❌ CORS blocked origin:", origin);
     return cb(null, false);
   },
   credentials: true,
   optionsSuccessStatus: 204,
-  preflightContinue: false,
 };
 
-// ✅ Apply CORS
-app.use(cors({ origin: true, credentials: true }));
+// ✅ Apply CORS (ONLY ONCE)  ✅✅✅
 app.use(cors(corsOptions));
-
-// ✅ Explicitly handle preflight for all routes
 app.options("*", cors(corsOptions));
 
 app.use(morgan("dev"));
 
-// ✅ Health check
-app.get("/", (req, res) =>
-  res.json({ ok: true, message: "E-commerce API running" })
-);
+// ✅ Health
+app.get("/", (req, res) => res.json({ ok: true, message: "E-commerce API running" }));
 
-// ✅ Serve static uploads if your upload route saves files locally
+// ✅ Optional API root
+app.get("/api", (req, res) => res.json({ ok: true, message: "API root" }));
+
+// ✅ Static uploads (if exists)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// uploads folder যদি থাকে (backend/uploads)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ✅ Public Routes
@@ -100,9 +90,9 @@ app.use("/api/banners", bannersRoutes);
 
 // ✅ Admin Routes
 app.use("/api/admin-auth", adminAuthRoutes);
-app.use("/api/admin/upload", adminUploadRoutes); // ✅ upload routes এখানে
-app.use("/api/admin/banners", adminBannersRoutes); // ✅ banners admin CRUD এখানে
-app.use("/api/admin", adminRoutes); // ✅ products/orders admin (existing)
+app.use("/api/admin/upload", adminUploadRoutes);
+app.use("/api/admin/banners", adminBannersRoutes);
+app.use("/api/admin", adminRoutes);
 
 // ✅ Error handlers
 app.use(notFound);
@@ -110,15 +100,11 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-// ✅ DB connect + listen
 connectDB(process.env.MONGO_URI)
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`✅ Server running on port ${PORT}`);
-      console.log(
-        "✅ Allowed CLIENT_ORIGIN:",
-        allowList.length ? allowList : "(ALL - not set)"
-      );
+      console.log("✅ Allowed CLIENT_ORIGIN:", allowList.length ? allowList : "(ALL - not set)");
     });
   })
   .catch((e) => {
