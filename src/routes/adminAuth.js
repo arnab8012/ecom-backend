@@ -4,14 +4,10 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = express.Router();
 
+// 🔐 ADMIN LOGIN
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
-    // ✅ DEBUG (Deploy এর পরে কাজ হলে চাইলে remove করবে)
-    console.log("🔥 ADMIN LOGIN HIT");
-    console.log("CONTENT-TYPE:", req.headers["content-type"]);
-    console.log("BODY:", req.body);
-
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "").trim();
 
@@ -26,15 +22,41 @@ router.post(
       return res.status(401).json({ ok: false, message: "Invalid admin credentials" });
     }
 
-    if (!process.env.JWT_SECRET) {
-      return res.status(500).json({ ok: false, message: "JWT_SECRET missing in server env" });
+    const token = jwt.sign(
+      { id: "admin", role: "admin" },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({ ok: true, token, admin: { email } });
+  })
+);
+
+// 🔐 ADMIN TOKEN VERIFY (IMPORTANT)
+router.get(
+  "/me",
+  asyncHandler(async (req, res) => {
+    const auth = String(req.headers.authorization || "");
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+
+    if (!token) {
+      return res.status(401).json({ ok: false, message: "No token" });
     }
 
-    const token = jwt.sign({ id: "admin", role: "admin" }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    return res.json({ ok: true, token, admin: { email } });
+      if (decoded.role !== "admin") {
+        return res.status(401).json({ ok: false, message: "Not admin" });
+      }
+
+      res.json({
+        ok: true,
+        admin: { id: decoded.id, role: decoded.role },
+      });
+    } catch {
+      res.status(401).json({ ok: false, message: "Invalid token" });
+    }
   })
 );
 
