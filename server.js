@@ -71,6 +71,7 @@ const corsOptions = {
 };
 
 // ✅ Apply CORS
+app.use(cors({ origin: true, credentials: true }));
 app.use(cors(corsOptions));
 
 // ✅ Explicitly handle preflight for all routes
