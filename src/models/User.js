@@ -2,42 +2,35 @@ import mongoose from "mongoose";
 
 const shippingAddressSchema = new mongoose.Schema(
   {
-    fullName: { type: String, trim: true, default: "" }, // receiver name (optional)
-    phone1: { type: String, trim: true, default: "" },
-    phone2: { type: String, trim: true, default: "" },
-    division: { type: String, trim: true, default: "" },
-    district: { type: String, trim: true, default: "" },
-    upazila: { type: String, trim: true, default: "" },
-    union: { type: String, trim: true, default: "" },
-    village: { type: String, trim: true, default: "" },
-    addressLine: { type: String, trim: true, default: "" },
-    postalCode: { type: String, trim: true, default: "" },
-    notes: { type: String, trim: true, default: "" }
+    fullName: { type: String, default: "" },
+    phone1: { type: String, default: "" },
+    phone2: { type: String, default: "" },
+    division: { type: String, default: "" },
+    district: { type: String, default: "" },
+    upazila: { type: String, default: "" },
+    union: { type: String, default: "" },
+    postCode: { type: String, default: "" },
+    addressLine: { type: String, default: "" },
+    note: { type: String, default: "" },
   },
   { _id: false }
 );
 
 const userSchema = new mongoose.Schema(
   {
-    // ✅ basic identity
     fullName: { type: String, required: true, trim: true },
-    phone: { type: String, required: true, unique: true, trim: true, index: true },
-
-    // ✅ auth
+    phone: { type: String, required: true, unique: true, trim: true },
     passwordHash: { type: String, required: true },
 
-    // ✅ optional profile
     gender: { type: String, enum: ["MALE", "FEMALE", "OTHER"], default: "MALE" },
     dateOfBirth: { type: Date, default: null },
 
-    // ✅ addresses
     permanentAddress: { type: String, default: "" },
 
-    // ✅ saved shipping (for next orders / other device login)
+    // ✅ NEW: shipping address saved with user
     shippingAddress: { type: shippingAddressSchema, default: () => ({}) },
 
-    // ✅ status
-    status: { type: String, enum: ["ACTIVE", "BLOCKED"], default: "ACTIVE" }
+    status: { type: String, enum: ["ACTIVE", "BLOCKED"], default: "ACTIVE" },
   },
   { timestamps: true }
 );
