@@ -1,5 +1,3 @@
-console.log("🔥 SERVER FILE LOADED");
-
 import dotenv from "dotenv";
 import path from "path";
 import express from "express";
@@ -23,6 +21,7 @@ import adminBannersRoutes from "./src/routes/adminBanners.js";
 import adminUploadRoutes from "./src/routes/adminUploadRoutes.js";
 
 dotenv.config();
+console.log("🔥 SERVER FILE LOADED");
 
 const app = express();
 
@@ -58,13 +57,13 @@ const corsOptions = {
     if (allowList.includes(origin)) return cb(null, true);
 
     console.log("❌ CORS blocked origin:", origin);
-    return cb(null, false);
+    return cb(new Error("Not allowed by CORS"));
   },
   credentials: true,
   optionsSuccessStatus: 204,
 };
 
-// ✅ Apply CORS (ONLY ONCE)  ✅✅✅
+// ✅ Apply CORS (ONLY ONCE)
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
