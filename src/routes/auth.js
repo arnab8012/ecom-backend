@@ -157,4 +157,37 @@ router.post(
   })
 );
 
+// ✅ Reset Password (phone + fullName match)
+router.post(
+  "/reset-password",
+  asyncHandler(async (req, res) => {
+    const { phone, fullName, newPassword } = req.body;
+
+    if (!phone || !fullName || !newPassword) {
+      return res.status(400).json({ ok: false, message: "Missing fields" });
+    }
+
+    // ✅ new password length check (simple)
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ ok: false, message: "Password must be at least 6 characters" });
+    }
+
+    const user = await User.findOne({ phone: String(phone).trim() });
+    if (!user) return res.status(404).json({ ok: false, message: "User not found" });
+
+    // ✅ fullName match (case-insensitive, trim)
+    const dbName = String(user.fullName || "").trim().toLowerCase();
+    const inName = String(fullName || "").trim().toLowerCase();
+
+    if (dbName !== inName) {
+      return res.status(401).json({ ok: false, message: "Name + phone not matched" });
+    }
+
+    user.passwordHash = await bcrypt.hash(String(newPassword), 10);
+    await user.save();
+
+    res.json({ ok: true, message: "Password updated" });
+  })
+);
+
 export default router;
