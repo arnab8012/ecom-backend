@@ -1,3 +1,4 @@
+// backend/src/routes/sitemap.js
 import express from "express";
 import Product from "../models/Product.js";
 
@@ -5,27 +6,33 @@ const router = express.Router();
 
 router.get("/sitemap.xml", async (req, res) => {
   try {
-    // ✅ live domain auto detect (সবচেয়ে safe)
-    const base = `${req.protocol}://${req.get("host")}`;
+    const base = "https://thecuriousempire.com";
 
-    // ✅ DB থেকে সব product id + updatedAt আনবে
-    const products = await Product.find({}, "_id updatedAt").lean();
+    // ✅ products: _id + updatedAt + createdAt (fallback এর জন্য)
+    const products = await Product.find({}, "_id updatedAt createdAt isActive").lean();
 
-    const staticUrls = [`${base}/`, `${base}/shop`];
+    // ✅ Static pages (public)
+    const staticUrls = [
+      `${base}/`,
+      `${base}/shop`,
+    ];
 
-    const productUrls = products.map((p) => {
-      const lastmod = p.updatedAt ? new Date(p.updatedAt).toISOString() : null;
-      return { loc: `${base}/product/${p._id}`, lastmod };
-    });
+    // ✅ Dynamic product pages
+    // (optional) isActive false হলে skip করবে
+    const productUrls = products
+      .filter((p) => p.isActive !== false)
+      .map((p) => {
+        const d = p.updatedAt || p.createdAt; // ✅ fallback
+        const lastmod = d ? new Date(d).toISOString() : null;
+        return { loc: `${base}/product/${p._id}`, lastmod };
+      });
 
     const urlsXml =
       staticUrls.map((u) => `<url><loc>${u}</loc></url>`).join("") +
       productUrls
         .map(
           (u) =>
-            `<url><loc>${u.loc}</loc>${
-              u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ""
-            }</url>`
+            `<url><loc>${u.loc}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ""}</url>`
         )
         .join("");
 
@@ -34,10 +41,10 @@ router.get("/sitemap.xml", async (req, res) => {
 ${urlsXml}
 </urlset>`;
 
-    res.set("Content-Type", "application/xml");
-    res.send(xml);
+    res.set("Content-Type", "application/xml; charset=utf-8");
+    res.status(200).send(xml);
   } catch (e) {
-    console.error(e);
+    console.error("❌ sitemap error:", e);
     res.status(500).send("sitemap error");
   }
 });
