@@ -19,6 +19,7 @@ import adminRoutes from "./src/routes/admin.js";
 import bannersRoutes from "./src/routes/banners.js";
 import adminBannersRoutes from "./src/routes/adminBanners.js";
 import adminUploadRoutes from "./src/routes/adminUploadRoutes.js";
+import sitemapRoutes from "./src/routes/sitemap.js";
 
 dotenv.config();
 console.log("🔥 SERVER FILE LOADED");
@@ -92,6 +93,8 @@ app.use("/api/admin-auth", adminAuthRoutes);
 app.use("/api/admin/upload", adminUploadRoutes);
 app.use("/api/admin/banners", adminBannersRoutes);
 app.use("/api/admin", adminRoutes);
+
+app.use("/", sitemapRoutes); // ✅ serves /sitemap.xml
 
 // ✅ Error handlers
 app.use(notFound);
