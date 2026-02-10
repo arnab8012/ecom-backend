@@ -5,8 +5,10 @@ const router = express.Router();
 
 router.get("/sitemap.xml", async (req, res) => {
   try {
-    const base = "https://thecuriousempire.com";
+    // ✅ live domain auto detect (সবচেয়ে safe)
+    const base = `${req.protocol}://${req.get("host")}`;
 
+    // ✅ DB থেকে সব product id + updatedAt আনবে
     const products = await Product.find({}, "_id updatedAt").lean();
 
     const staticUrls = [`${base}/`, `${base}/shop`];
@@ -21,7 +23,9 @@ router.get("/sitemap.xml", async (req, res) => {
       productUrls
         .map(
           (u) =>
-            `<url><loc>${u.loc}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ""}</url>`
+            `<url><loc>${u.loc}</loc>${
+              u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ""
+            }</url>`
         )
         .join("");
 
