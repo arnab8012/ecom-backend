@@ -4,25 +4,38 @@ import Product from "../models/Product.js";
 const router = express.Router();
 
 router.get("/sitemap.xml", async (req, res) => {
-  const base = "https://thecuriousempire.com";
+  try {
+    const base = "https://thecuriousempire.com";
 
-  const products = await Product.find({ isActive: true }).select("_id updatedAt").lean();
+    const products = await Product.find({}, "_id updatedAt").lean();
 
-  const urls = [
-    `${base}/`,
-    `${base}/shop`,
-    ...products.map((p) => `${base}/product/${p._id}`),
-  ];
+    const staticUrls = [`${base}/`, `${base}/shop`];
 
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    const productUrls = products.map((p) => {
+      const lastmod = p.updatedAt ? new Date(p.updatedAt).toISOString() : null;
+      return { loc: `${base}/product/${p._id}`, lastmod };
+    });
+
+    const urlsXml =
+      staticUrls.map((u) => `<url><loc>${u}</loc></url>`).join("") +
+      productUrls
+        .map(
+          (u) =>
+            `<url><loc>${u.loc}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ""}</url>`
+        )
+        .join("");
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls
-  .map((u) => `  <url><loc>${u}</loc></url>`)
-  .join("\n")}
+${urlsXml}
 </urlset>`;
 
-  res.setHeader("Content-Type", "application/xml");
-  res.send(xml);
+    res.set("Content-Type", "application/xml");
+    res.send(xml);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send("sitemap error");
+  }
 });
 
 export default router;
