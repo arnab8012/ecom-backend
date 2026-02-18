@@ -108,6 +108,68 @@ router.put(
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ ok: false, message: "Order not found" });
 
+    const prevStatus = order.status;
+
+    // =========================
+    // ✅ Stock restore on CANCELLED
+    // =========================
+    // Rule: since we decrement stock at order placement,
+    // if order becomes CANCELLED, we restore stock once.
+    if (status === "CANCELLED" && prevStatus !== "CANCELLED") {
+      for (const it of order.items || []) {
+        const qty = Math.max(1, Number(it.qty || 1));
+        const variantName = String(it.variant || "");
+
+        // Variant-based restore (your main case)
+        if (variantName) {
+          await Product.updateOne(
+            { _id: it.productId, "variants.name": variantName },
+            { $inc: { "variants.$.stock": qty } }
+          );
+        } else {
+          // Fallback: root stock restore (if any product uses it)
+          await Product.updateOne({ _id: it.productId }, { $inc: { stock: qty } });
+        }
+      }
+    }
+
+    // =========================
+    // ✅ If admin re-opens an order from CANCELLED to active,
+    // we must decrement again (optional but safe).
+    // =========================
+    const activeStatuses = ["PLACED", "CONFIRMED", "IN_TRANSIT", "DELIVERED"];
+    if (prevStatus === "CANCELLED" && activeStatuses.includes(status)) {
+      // stock check + decrement again (same logic as checkout)
+      for (const it of order.items || []) {
+        const qty = Math.max(1, Number(it.qty || 1));
+        const variantName = String(it.variant || "");
+
+        if (variantName) {
+          const r = await Product.updateOne(
+            { _id: it.productId, "variants.name": variantName, "variants.stock": { $gte: qty } },
+            { $inc: { "variants.$.stock": -qty } }
+          );
+          if (r.modifiedCount !== 1) {
+            return res.status(400).json({
+              ok: false,
+              message: `Stock Out while re-activating order: ${variantName}`
+            });
+          }
+        } else {
+          const r = await Product.updateOne(
+            { _id: it.productId, stock: { $gte: qty } },
+            { $inc: { stock: -qty } }
+          );
+          if (r.modifiedCount !== 1) {
+            return res.status(400).json({
+              ok: false,
+              message: "Stock Out while re-activating order"
+            });
+          }
+        }
+      }
+    }
+
     order.status = status;
     await order.save();
 
