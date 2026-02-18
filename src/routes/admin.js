@@ -169,7 +169,19 @@ router.put(
         }
       }
     }
+// =========================
+// ✅ Increase soldCount on DELIVERED (only first time)
+// =========================
+if (status === "DELIVERED" && prevStatus !== "DELIVERED") {
+  for (const it of order.items || []) {
+    const qty = Math.max(1, Number(it.qty || 1));
 
+    await Product.updateOne(
+      { _id: it.productId },
+      { $inc: { soldCount: qty } }
+    );
+  }
+}
     order.status = status;
     await order.save();
 
