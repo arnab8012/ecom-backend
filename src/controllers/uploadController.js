@@ -54,3 +54,27 @@ export const uploadBannerImages = async (req, res) => {
     return res.status(500).json({ ok: false, message: e?.message || "Upload failed" });
   }
 };
+// ✅ Category icon upload (single image)
+export const uploadCategoryIcon = async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ ok: false, message: "No file" });
+    }
+
+    // 🔥 SAME helper as product/banner
+    const out = await uploadOne(file, "ecom/categories");
+
+    // 🔁 same response style
+    return res.json({
+      ok: true,
+      icon: out, // { url, public_id }
+    });
+  } catch (e) {
+    console.log("❌ uploadCategoryIcon error:", e);
+    return res.status(500).json({
+      ok: false,
+      message: e?.message || "Upload failed",
+    });
+  }
+};
