@@ -40,6 +40,12 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+/* =========================
+   ✅ CORS (Vercel + Custom domain safe)
+   CLIENT_ORIGIN env example (comma separated):
+   CLIENT_ORIGIN=http://localhost:3000,https://thecuriousempire.com,https://thecuriousempire-nextjs-frontend.vercel.app
+========================= */
+
 // ✅ CORS allowlist from env (comma-separated)
 const rawOrigins = process.env.CLIENT_ORIGIN || "";
 const allowList = rawOrigins
@@ -47,17 +53,43 @@ const allowList = rawOrigins
   .map((s) => s.trim())
   .filter(Boolean);
 
+// ✅ normalize helper: remove trailing slash + handle www/non-www matching
+const normalizeOrigin = (o = "") => {
+  try {
+    const u = new URL(o);
+    // remove trailing slash style differences
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return o.replace(/\/+$/, "");
+  }
+};
+
+const normalizedAllowList = allowList.map(normalizeOrigin);
+
 const corsOptions = {
   origin: (origin, cb) => {
     // Postman/curl/hoppscotch sometimes origin-less
     if (!origin) return cb(null, true);
 
     // if allowList empty => allow all (debug friendly)
-    if (allowList.length === 0) return cb(null, true);
+    if (normalizedAllowList.length === 0) return cb(null, true);
 
-    if (allowList.includes(origin)) return cb(null, true);
+    const reqOrigin = normalizeOrigin(origin);
+
+    // direct match
+    if (normalizedAllowList.includes(reqOrigin)) return cb(null, true);
+
+    // www <-> non-www fallback match
+    const alt1 = reqOrigin.replace("://www.", "://");
+    const alt2 = reqOrigin.includes("://")
+      ? reqOrigin.replace("://", "://www.")
+      : reqOrigin;
+
+    if (normalizedAllowList.includes(alt1)) return cb(null, true);
+    if (normalizedAllowList.includes(alt2)) return cb(null, true);
 
     console.log("❌ CORS blocked origin:", origin);
+    console.log("✅ Allowed CLIENT_ORIGIN:", normalizedAllowList);
     return cb(new Error("Not allowed by CORS"));
   },
   credentials: true,
@@ -71,7 +103,9 @@ app.options("*", cors(corsOptions));
 app.use(morgan("dev"));
 
 // ✅ Health
-app.get("/", (req, res) => res.json({ ok: true, message: "E-commerce API running" }));
+app.get("/", (req, res) =>
+  res.json({ ok: true, message: "E-commerce API running" })
+);
 
 // ✅ Optional API root
 app.get("/api", (req, res) => res.json({ ok: true, message: "API root" }));
@@ -106,7 +140,10 @@ connectDB(process.env.MONGO_URI)
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`✅ Server running on port ${PORT}`);
-      console.log("✅ Allowed CLIENT_ORIGIN:", allowList.length ? allowList : "(ALL - not set)");
+      console.log(
+        "✅ Allowed CLIENT_ORIGIN:",
+        normalizedAllowList.length ? normalizedAllowList : "(ALL - not set)"
+      );
     });
   })
   .catch((e) => {
