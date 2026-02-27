@@ -20,10 +20,11 @@ const toUserPayload = (user) => ({
   dateOfBirth: user.dateOfBirth,
   permanentAddress: user.permanentAddress,
 
+  // ✅ NEW multi
   shippingAddresses: Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [],
   defaultShippingAddressId: user.defaultShippingAddressId || "",
 
-  // legacy single
+  // ✅ OLD single (backward compat)
   shippingAddress: user.shippingAddress || {},
 
   createdAt: user.createdAt,
@@ -50,10 +51,21 @@ function normShip(input = {}) {
   };
 }
 
+function hasMeaningfulData(s = {}) {
+  const a = s || {};
+  return Boolean(
+    String(a.fullName || "").trim() ||
+      String(a.phone1 || "").trim() ||
+      String(a.district || "").trim() ||
+      String(a.upazila || "").trim() ||
+      String(a.addressLine || "").trim()
+  );
+}
+
 function ensureSingleDefault(user) {
   const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
 
-  // enforce defaultShippingAddressId if valid
+  // if defaultShippingAddressId points to a valid id -> enforce that as default
   if (user.defaultShippingAddressId) {
     const id = String(user.defaultShippingAddressId);
     let found = false;
@@ -67,6 +79,7 @@ function ensureSingleDefault(user) {
     if (!found) user.defaultShippingAddressId = "";
   }
 
+  // if multiple defaults -> keep first
   const defaults = list.filter((a) => a.isDefault);
   if (defaults.length > 1) {
     let kept = false;
@@ -78,27 +91,30 @@ function ensureSingleDefault(user) {
     });
   }
 
+  // sync id from isDefault
   const def = list.find((a) => a.isDefault);
   if (def) user.defaultShippingAddressId = String(def._id);
 
   user.shippingAddresses = list;
 }
 
+/**
+ * ✅ MIGRATION:
+ * old user.shippingAddress (single) -> new user.shippingAddresses (array)
+ * only if shippingAddresses empty and old has something meaningful
+ */
 async function migrateSingleToMulti(user) {
   const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
   if (list.length) return false;
 
   const s = user.shippingAddress || {};
-  const hasData =
-    String(s.fullName || "").trim() ||
-    String(s.phone1 || "").trim() ||
-    String(s.district || "").trim() ||
-    String(s.upazila || "").trim() ||
-    String(s.addressLine || "").trim();
+  if (!hasMeaningfulData(s)) return false;
 
-  if (!hasData) return false;
-
-  const migrated = normShip({ ...s, label: "Home", isDefault: true });
+  const migrated = normShip({
+    ...s,
+    label: s.label || "Home",
+    isDefault: true,
+  });
 
   user.shippingAddresses = [migrated];
   ensureSingleDefault(user);
@@ -110,7 +126,7 @@ async function migrateSingleToMulti(user) {
    Auth
 ========================= */
 
-// Register
+// ✅ Register
 router.post(
   "/register",
   asyncHandler(async (req, res) => {
@@ -142,7 +158,7 @@ router.post(
   })
 );
 
-// Login
+// ✅ Login
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
@@ -168,19 +184,21 @@ router.post(
    Me + Profile
 ========================= */
 
-// Me
+// ✅ Me
 router.get(
   "/me",
   auth,
   asyncHandler(async (req, res) => {
+    // migrate old single -> multi once
     await migrateSingleToMulti(req.user);
 
+    // refresh from DB to include subdoc ids etc
     const fresh = await User.findById(req.user._id);
     return res.json({ ok: true, user: toUserPayload(fresh) });
   })
 );
 
-// Update me
+// ✅ Update me (profile + legacy single + optional replace multi)
 router.put(
   "/me",
   auth,
@@ -198,6 +216,7 @@ router.put(
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ ok: false, message: "User not found" });
 
+    // profile
     if (typeof fullName === "string") user.fullName = fullName.trim();
     if (typeof permanentAddress === "string") user.permanentAddress = permanentAddress;
     if (typeof gender === "string") user.gender = gender;
@@ -207,7 +226,7 @@ router.put(
       if (!isNaN(d.getTime())) user.dateOfBirth = d;
     }
 
-    // legacy single merge
+    // ✅ legacy single shippingAddress merge (old frontend)
     if (shippingAddress && typeof shippingAddress === "object") {
       user.shippingAddress = {
         ...(user.shippingAddress || {}),
@@ -215,7 +234,7 @@ router.put(
       };
     }
 
-    // optional full replace
+    // ✅ optional: replace full address book
     if (Array.isArray(shippingAddresses)) {
       user.shippingAddresses = shippingAddresses.map((x) => normShip(x));
     }
@@ -232,11 +251,11 @@ router.put(
 );
 
 /* =========================
-   Shipping Address Book
+   Shipping Address Book (Multiple)
    Base: /api/auth/shipping
 ========================= */
 
-// List
+// ✅ List all addresses
 router.get(
   "/shipping",
   auth,
@@ -252,7 +271,7 @@ router.get(
   })
 );
 
-// Add
+// ✅ Add new address
 router.post(
   "/shipping",
   auth,
@@ -261,10 +280,18 @@ router.post(
     if (!user) return res.status(404).json({ ok: false, message: "User not found" });
 
     const ship = normShip(req.body || {});
+
+    // ✅ BLOCK empty address (prevents blank Home default)
+    if (!hasMeaningfulData(ship)) {
+      return res.status(400).json({ ok: false, message: "Empty address not allowed" });
+    }
+
     const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
 
+    // if first address -> default
     if (!list.length) ship.isDefault = true;
 
+    // if request says isDefault true -> unset others
     if (ship.isDefault) list.forEach((a) => (a.isDefault = false));
 
     list.unshift(ship);
@@ -277,7 +304,7 @@ router.post(
   })
 );
 
-// Update one
+// ✅ Update one address
 router.put(
   "/shipping/:id",
   auth,
@@ -291,7 +318,13 @@ router.put(
     const addr = list.find((a) => String(a._id) === String(id));
     if (!addr) return res.status(404).json({ ok: false, message: "Address not found" });
 
+    // patch with normalized values
     const patch = normShip({ ...addr.toObject(), ...(req.body || {}) });
+
+    // ✅ prevent turning it into empty address
+    if (!hasMeaningfulData(patch)) {
+      return res.status(400).json({ ok: false, message: "Empty address not allowed" });
+    }
 
     addr.label = patch.label;
     addr.fullName = patch.fullName;
@@ -305,6 +338,7 @@ router.put(
     addr.addressLine = patch.addressLine;
     addr.note = patch.note;
 
+    // if set default
     if (req.body?.isDefault === true) {
       list.forEach((a) => (a.isDefault = String(a._id) === String(id)));
       user.defaultShippingAddressId = String(id);
@@ -318,7 +352,7 @@ router.put(
   })
 );
 
-// Delete one
+// ✅ Delete one address
 router.delete(
   "/shipping/:id",
   auth,
@@ -334,6 +368,7 @@ router.delete(
     list = list.filter((a) => String(a._id) !== String(id));
     if (list.length === before) return res.status(404).json({ ok: false, message: "Address not found" });
 
+    // if deleted default -> set first as default
     if (String(user.defaultShippingAddressId || "") === String(id)) {
       user.defaultShippingAddressId = "";
       if (list[0]) list[0].isDefault = true;
@@ -347,7 +382,7 @@ router.delete(
   })
 );
 
-// Set default
+// ✅ Set default
 router.post(
   "/shipping/:id/default",
   auth,
@@ -376,6 +411,7 @@ router.post(
    Password reset
 ========================= */
 
+// ✅ Forgot Password
 router.post(
   "/forgot-password",
   asyncHandler(async (req, res) => {
@@ -403,6 +439,7 @@ router.post(
   })
 );
 
+// ✅ Reset Password (same as forgot-password)
 router.post(
   "/reset-password",
   asyncHandler(async (req, res) => {
