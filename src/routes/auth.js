@@ -20,11 +20,10 @@ const toUserPayload = (user) => ({
   dateOfBirth: user.dateOfBirth,
   permanentAddress: user.permanentAddress,
 
-  // ✅ NEW multi
   shippingAddresses: Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [],
   defaultShippingAddressId: user.defaultShippingAddressId || "",
 
-  // ✅ OLD single (compat)
+  // legacy single
   shippingAddress: user.shippingAddress || {},
 
   createdAt: user.createdAt,
@@ -54,25 +53,20 @@ function normShip(input = {}) {
 function ensureSingleDefault(user) {
   const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
 
-  if (!list.length) {
-    user.defaultShippingAddressId = "";
-    user.shippingAddresses = [];
-    return;
-  }
-
-  // enforce defaultShippingAddressId if set
+  // enforce defaultShippingAddressId if valid
   if (user.defaultShippingAddressId) {
     const id = String(user.defaultShippingAddressId);
     let found = false;
+
     list.forEach((a) => {
       const match = String(a._id) === id;
       if (match) found = true;
       a.isDefault = match;
     });
+
     if (!found) user.defaultShippingAddressId = "";
   }
 
-  // if multiple default -> keep first
   const defaults = list.filter((a) => a.isDefault);
   if (defaults.length > 1) {
     let kept = false;
@@ -84,20 +78,12 @@ function ensureSingleDefault(user) {
     });
   }
 
-  // if none default -> set first default
-  let def = list.find((a) => a.isDefault);
-  if (!def) {
-    list[0].isDefault = true;
-    def = list[0];
-  }
+  const def = list.find((a) => a.isDefault);
+  if (def) user.defaultShippingAddressId = String(def._id);
 
-  user.defaultShippingAddressId = def ? String(def._id) : "";
   user.shippingAddresses = list;
 }
 
-/**
- * ✅ MIGRATION: old single -> new array
- */
 async function migrateSingleToMulti(user) {
   const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
   if (list.length) return false;
@@ -112,11 +98,7 @@ async function migrateSingleToMulti(user) {
 
   if (!hasData) return false;
 
-  const migrated = normShip({
-    ...s,
-    label: "Home",
-    isDefault: true,
-  });
+  const migrated = normShip({ ...s, label: "Home", isDefault: true });
 
   user.shippingAddresses = [migrated];
   ensureSingleDefault(user);
@@ -128,7 +110,7 @@ async function migrateSingleToMulti(user) {
    Auth
 ========================= */
 
-// ✅ Register
+// Register
 router.post(
   "/register",
   asyncHandler(async (req, res) => {
@@ -152,13 +134,15 @@ router.post(
       defaultShippingAddressId: "",
     });
 
-    const token = jwt.sign({ id: user._id, role: "user" }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ id: user._id, role: "user" }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
     res.json({ ok: true, token, user: toUserPayload(user) });
   })
 );
 
-// ✅ Login
+// Login
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
@@ -172,7 +156,9 @@ router.post(
     const ok = await bcrypt.compare(String(password), user.passwordHash);
     if (!ok) return res.status(401).json({ ok: false, message: "Invalid credentials" });
 
-    const token = jwt.sign({ id: user._id, role: "user" }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ id: user._id, role: "user" }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
     res.json({ ok: true, token, user: toUserPayload(user) });
   })
@@ -182,7 +168,7 @@ router.post(
    Me + Profile
 ========================= */
 
-// ✅ Me (auto migrate)
+// Me
 router.get(
   "/me",
   auth,
@@ -194,12 +180,20 @@ router.get(
   })
 );
 
-// ✅ Update me (legacy + optional replace)
+// Update me
 router.put(
   "/me",
   auth,
   asyncHandler(async (req, res) => {
-    const { fullName, permanentAddress, dateOfBirth, gender, shippingAddress, shippingAddresses, defaultShippingAddressId } = req.body;
+    const {
+      fullName,
+      permanentAddress,
+      dateOfBirth,
+      gender,
+      shippingAddress,
+      shippingAddresses,
+      defaultShippingAddressId,
+    } = req.body;
 
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ ok: false, message: "User not found" });
@@ -215,9 +209,13 @@ router.put(
 
     // legacy single merge
     if (shippingAddress && typeof shippingAddress === "object") {
-      user.shippingAddress = { ...(user.shippingAddress || {}), ...(shippingAddress || {}) };
+      user.shippingAddress = {
+        ...(user.shippingAddress || {}),
+        ...(shippingAddress || {}),
+      };
     }
 
+    // optional full replace
     if (Array.isArray(shippingAddresses)) {
       user.shippingAddresses = shippingAddresses.map((x) => normShip(x));
     }
@@ -234,11 +232,11 @@ router.put(
 );
 
 /* =========================
-   Shipping Address Book (Multiple)
+   Shipping Address Book
    Base: /api/auth/shipping
 ========================= */
 
-// ✅ List
+// List
 router.get(
   "/shipping",
   auth,
@@ -254,7 +252,7 @@ router.get(
   })
 );
 
-// ✅ Add
+// Add
 router.post(
   "/shipping",
   auth,
@@ -264,11 +262,6 @@ router.post(
 
     const ship = normShip(req.body || {});
     const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
-
-    // reject empty address (prevents blank save)
-    const hasData =
-      ship.fullName || ship.phone1 || ship.district || ship.upazila || ship.addressLine;
-    if (!hasData) return res.status(400).json({ ok: false, message: "Empty address not allowed" });
 
     if (!list.length) ship.isDefault = true;
 
@@ -284,7 +277,7 @@ router.post(
   })
 );
 
-// ✅ Update
+// Update one
 router.put(
   "/shipping/:id",
   auth,
@@ -325,7 +318,7 @@ router.put(
   })
 );
 
-// ✅ Delete
+// Delete one
 router.delete(
   "/shipping/:id",
   auth,
@@ -354,7 +347,7 @@ router.delete(
   })
 );
 
-// ✅ Set default
+// Set default
 router.post(
   "/shipping/:id/default",
   auth,
@@ -380,11 +373,38 @@ router.post(
 );
 
 /* =========================
-   Password reset (Phone + Full Name)
+   Password reset
 ========================= */
 
 router.post(
   "/forgot-password",
+  asyncHandler(async (req, res) => {
+    const { phone, fullName, newPassword } = req.body;
+
+    if (!phone || !fullName || !newPassword) {
+      return res.status(400).json({ ok: false, message: "Missing fields" });
+    }
+
+    const user = await User.findOne({ phone: String(phone).trim() });
+    if (!user) return res.status(404).json({ ok: false, message: "User not found" });
+
+    const a = String(user.fullName || "").trim().toLowerCase();
+    const b = String(fullName).trim().toLowerCase();
+    if (a !== b) return res.status(401).json({ ok: false, message: "Name/phone did not match" });
+
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ ok: false, message: "Password must be at least 6 characters" });
+    }
+
+    user.passwordHash = await bcrypt.hash(String(newPassword), 10);
+    await user.save();
+
+    res.json({ ok: true, message: "Password updated" });
+  })
+);
+
+router.post(
+  "/reset-password",
   asyncHandler(async (req, res) => {
     const { phone, fullName, newPassword } = req.body;
 
@@ -399,9 +419,12 @@ router.post(
     const user = await User.findOne({ phone: String(phone).trim() });
     if (!user) return res.status(404).json({ ok: false, message: "User not found" });
 
-    const a = String(user.fullName || "").trim().toLowerCase();
-    const b = String(fullName).trim().toLowerCase();
-    if (a !== b) return res.status(401).json({ ok: false, message: "Name + phone not matched" });
+    const dbName = String(user.fullName || "").trim().toLowerCase();
+    const inName = String(fullName || "").trim().toLowerCase();
+
+    if (dbName !== inName) {
+      return res.status(401).json({ ok: false, message: "Name + phone not matched" });
+    }
 
     user.passwordHash = await bcrypt.hash(String(newPassword), 10);
     await user.save();
@@ -409,8 +432,5 @@ router.post(
     res.json({ ok: true, message: "Password updated" });
   })
 );
-
-// compat
-router.post("/reset-password", (req, res, next) => router.handle({ ...req, url: "/forgot-password" }, res, next));
 
 export default router;
