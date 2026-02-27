@@ -22,7 +22,7 @@ const shippingAddressSchema = new mongoose.Schema(
     addressLine: { type: String, default: "", trim: true },
     note: { type: String, default: "", trim: true },
   },
-  { timestamps: true } // ✅ each address has createdAt/updatedAt
+  { timestamps: true }
 );
 
 const userSchema = new mongoose.Schema(
@@ -76,35 +76,54 @@ const userSchema = new mongoose.Schema(
 
 /**
  * ✅ Ensure only ONE default address
- * - if any shippingAddresses marked isDefault, keep first as default, unset others
- * - also sync defaultShippingAddressId
+ * - if defaultShippingAddressId exists & valid => enforce it
+ * - if multiple isDefault => keep first only
+ * - if none default => set first as default
+ * - always sync defaultShippingAddressId
  */
 userSchema.pre("save", function (next) {
   try {
-    if (Array.isArray(this.shippingAddresses) && this.shippingAddresses.length) {
-      const defaults = this.shippingAddresses.filter((a) => a.isDefault);
+    const list = Array.isArray(this.shippingAddresses) ? this.shippingAddresses : [];
 
-      if (defaults.length > 1) {
-        // keep first default, unset rest
-        let kept = false;
-        this.shippingAddresses = this.shippingAddresses.map((a) => {
-          if (a.isDefault) {
-            if (!kept) {
-              kept = true;
-              return a;
-            }
-            a.isDefault = false;
-          }
-          return a;
-        });
-      }
-
-      const def = this.shippingAddresses.find((a) => a.isDefault);
-      this.defaultShippingAddressId = def ? String(def._id) : this.defaultShippingAddressId || "";
-    } else {
+    if (!list.length) {
       this.defaultShippingAddressId = "";
+      return next();
     }
 
+    // 1) enforce defaultShippingAddressId if valid
+    if (this.defaultShippingAddressId) {
+      const id = String(this.defaultShippingAddressId);
+      const exists = list.some((a) => String(a._id) === id);
+
+      if (exists) {
+        list.forEach((a) => {
+          a.isDefault = String(a._id) === id;
+        });
+      } else {
+        this.defaultShippingAddressId = "";
+      }
+    }
+
+    // 2) if multiple defaults -> keep first
+    let kept = false;
+    list.forEach((a) => {
+      if (a.isDefault) {
+        if (!kept) kept = true;
+        else a.isDefault = false;
+      }
+    });
+
+    // 3) if still none default -> set first default ✅
+    const def = list.find((a) => a.isDefault);
+    if (!def) {
+      list.forEach((a) => (a.isDefault = false));
+      list[0].isDefault = true;
+      this.defaultShippingAddressId = String(list[0]._id);
+    } else {
+      this.defaultShippingAddressId = String(def._id);
+    }
+
+    this.shippingAddresses = list;
     next();
   } catch (e) {
     next(e);
