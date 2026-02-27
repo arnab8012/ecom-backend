@@ -24,7 +24,7 @@ const toUserPayload = (user) => ({
   shippingAddresses: Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [],
   defaultShippingAddressId: user.defaultShippingAddressId || "",
 
-  // ✅ OLD single (keep for backward compat – optional)
+  // ✅ OLD single (backward compat)
   shippingAddress: user.shippingAddress || {},
 
   createdAt: user.createdAt,
@@ -54,36 +54,44 @@ function normShip(input = {}) {
 function ensureSingleDefault(user) {
   const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
 
-  // if defaultShippingAddressId points to a valid id -> enforce that as default
+  if (!list.length) {
+    user.defaultShippingAddressId = "";
+    user.shippingAddresses = [];
+    return;
+  }
+
+  // enforce defaultShippingAddressId if valid
   if (user.defaultShippingAddressId) {
     const id = String(user.defaultShippingAddressId);
-    let found = false;
+    const exists = list.some((a) => String(a._id) === id);
 
-    list.forEach((a) => {
-      const match = String(a._id) === id;
-      if (match) found = true;
-      a.isDefault = match;
-    });
-
-    // if invalid id, clear it
-    if (!found) user.defaultShippingAddressId = "";
+    if (exists) {
+      list.forEach((a) => (a.isDefault = String(a._id) === id));
+      user.shippingAddresses = list;
+      return;
+    } else {
+      user.defaultShippingAddressId = "";
+    }
   }
 
-  // if none default set, but some isDefault true -> keep first, unset rest
-  const defaults = list.filter((a) => a.isDefault);
-  if (defaults.length > 1) {
-    let kept = false;
-    list.forEach((a) => {
-      if (a.isDefault) {
-        if (!kept) kept = true;
-        else a.isDefault = false;
-      }
-    });
-  }
+  // multiple defaults -> keep first
+  let kept = false;
+  list.forEach((a) => {
+    if (a.isDefault) {
+      if (!kept) kept = true;
+      else a.isDefault = false;
+    }
+  });
 
-  // if still none default, keep defaultShippingAddressId empty
+  // if none default -> set first default ✅
   const def = list.find((a) => a.isDefault);
-  if (def) user.defaultShippingAddressId = String(def._id);
+  if (!def) {
+    list.forEach((a) => (a.isDefault = false));
+    list[0].isDefault = true;
+    user.defaultShippingAddressId = String(list[0]._id);
+  } else {
+    user.defaultShippingAddressId = String(def._id);
+  }
 
   user.shippingAddresses = list;
 }
@@ -94,6 +102,8 @@ function ensureSingleDefault(user) {
  * only if shippingAddresses empty and old has something meaningful
  */
 async function migrateSingleToMulti(user) {
+  if (!user) return false;
+
   const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
   if (list.length) return false;
 
@@ -114,7 +124,6 @@ async function migrateSingleToMulti(user) {
   });
 
   user.shippingAddresses = [migrated];
-  // defaultShippingAddressId will be set after save (pre-save) OR we set now after save
   ensureSingleDefault(user);
   await user.save();
   return true;
@@ -200,16 +209,26 @@ router.get(
 
     // refresh from DB to include subdoc ids etc
     const fresh = await User.findById(req.user._id);
+    if (!fresh) return res.status(404).json({ ok: false, message: "User not found" });
+
     return res.json({ ok: true, user: toUserPayload(fresh) });
   })
 );
 
-// ✅ Update me (profile + shippingAddress(single legacy) + shippingAddresses(optional replace))
+// ✅ Update me (profile + legacy shippingAddress + optional replace shippingAddresses)
 router.put(
   "/me",
   auth,
   asyncHandler(async (req, res) => {
-    const { fullName, permanentAddress, dateOfBirth, gender, shippingAddress, shippingAddresses, defaultShippingAddressId } = req.body;
+    const {
+      fullName,
+      permanentAddress,
+      dateOfBirth,
+      gender,
+      shippingAddress,
+      shippingAddresses,
+      defaultShippingAddressId,
+    } = req.body;
 
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ ok: false, message: "User not found" });
@@ -259,7 +278,11 @@ router.get(
   auth,
   asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ ok: false, message: "User not found" });
+
     await migrateSingleToMulti(user);
+    ensureSingleDefault(user);
+    await user.save();
 
     return res.json({
       ok: true,
@@ -314,7 +337,6 @@ router.put(
 
     const patch = normShip({ ...addr.toObject(), ...(req.body || {}) });
 
-    // preserve _id + timestamps managed by mongoose
     addr.label = patch.label;
     addr.fullName = patch.fullName;
     addr.phone1 = patch.phone1;
@@ -327,7 +349,7 @@ router.put(
     addr.addressLine = patch.addressLine;
     addr.note = patch.note;
 
-    // if set default
+    // if set default requested
     if (req.body?.isDefault === true) {
       list.forEach((a) => (a.isDefault = String(a._id) === String(id)));
       user.defaultShippingAddressId = String(id);
@@ -351,6 +373,10 @@ router.delete(
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ ok: false, message: "User not found" });
 
+    const wasDefault = Array.isArray(user.shippingAddresses)
+      ? user.shippingAddresses.some((a) => String(a._id) === String(id) && a.isDefault)
+      : false;
+
     let list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
     const before = list.length;
 
@@ -358,7 +384,7 @@ router.delete(
     if (list.length === before) return res.status(404).json({ ok: false, message: "Address not found" });
 
     // if deleted default -> set first as default
-    if (String(user.defaultShippingAddressId || "") === String(id)) {
+    if (String(user.defaultShippingAddressId || "") === String(id) || wasDefault) {
       user.defaultShippingAddressId = "";
       if (list[0]) list[0].isDefault = true;
     }
