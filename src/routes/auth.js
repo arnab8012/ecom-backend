@@ -24,7 +24,7 @@ const toUserPayload = (user) => ({
   shippingAddresses: Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [],
   defaultShippingAddressId: user.defaultShippingAddressId || "",
 
-  // ✅ OLD single (backward compat)
+  // ✅ OLD single (compat)
   shippingAddress: user.shippingAddress || {},
 
   createdAt: user.createdAt,
@@ -60,50 +60,45 @@ function ensureSingleDefault(user) {
     return;
   }
 
-  // enforce defaultShippingAddressId if valid
+  // enforce defaultShippingAddressId if set
   if (user.defaultShippingAddressId) {
     const id = String(user.defaultShippingAddressId);
-    const exists = list.some((a) => String(a._id) === id);
-
-    if (exists) {
-      list.forEach((a) => (a.isDefault = String(a._id) === id));
-      user.shippingAddresses = list;
-      return;
-    } else {
-      user.defaultShippingAddressId = "";
-    }
+    let found = false;
+    list.forEach((a) => {
+      const match = String(a._id) === id;
+      if (match) found = true;
+      a.isDefault = match;
+    });
+    if (!found) user.defaultShippingAddressId = "";
   }
 
-  // multiple defaults -> keep first
-  let kept = false;
-  list.forEach((a) => {
-    if (a.isDefault) {
-      if (!kept) kept = true;
-      else a.isDefault = false;
-    }
-  });
+  // if multiple default -> keep first
+  const defaults = list.filter((a) => a.isDefault);
+  if (defaults.length > 1) {
+    let kept = false;
+    list.forEach((a) => {
+      if (a.isDefault) {
+        if (!kept) kept = true;
+        else a.isDefault = false;
+      }
+    });
+  }
 
-  // if none default -> set first default ✅
-  const def = list.find((a) => a.isDefault);
+  // if none default -> set first default
+  let def = list.find((a) => a.isDefault);
   if (!def) {
-    list.forEach((a) => (a.isDefault = false));
     list[0].isDefault = true;
-    user.defaultShippingAddressId = String(list[0]._id);
-  } else {
-    user.defaultShippingAddressId = String(def._id);
+    def = list[0];
   }
 
+  user.defaultShippingAddressId = def ? String(def._id) : "";
   user.shippingAddresses = list;
 }
 
 /**
- * ✅ MIGRATION:
- * old user.shippingAddress (single) -> new user.shippingAddresses (array)
- * only if shippingAddresses empty and old has something meaningful
+ * ✅ MIGRATION: old single -> new array
  */
 async function migrateSingleToMulti(user) {
-  if (!user) return false;
-
   const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
   if (list.length) return false;
 
@@ -157,15 +152,9 @@ router.post(
       defaultShippingAddressId: "",
     });
 
-    const token = jwt.sign({ id: user._id, role: "user" }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    const token = jwt.sign({ id: user._id, role: "user" }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
-    res.json({
-      ok: true,
-      token,
-      user: toUserPayload(user),
-    });
+    res.json({ ok: true, token, user: toUserPayload(user) });
   })
 );
 
@@ -183,15 +172,9 @@ router.post(
     const ok = await bcrypt.compare(String(password), user.passwordHash);
     if (!ok) return res.status(401).json({ ok: false, message: "Invalid credentials" });
 
-    const token = jwt.sign({ id: user._id, role: "user" }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    const token = jwt.sign({ id: user._id, role: "user" }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
-    res.json({
-      ok: true,
-      token,
-      user: toUserPayload(user),
-    });
+    res.json({ ok: true, token, user: toUserPayload(user) });
   })
 );
 
@@ -199,41 +182,28 @@ router.post(
    Me + Profile
 ========================= */
 
-// ✅ Me
+// ✅ Me (auto migrate)
 router.get(
   "/me",
   auth,
   asyncHandler(async (req, res) => {
-    // migrate old single -> multi once
     await migrateSingleToMulti(req.user);
 
-    // refresh from DB to include subdoc ids etc
     const fresh = await User.findById(req.user._id);
-    if (!fresh) return res.status(404).json({ ok: false, message: "User not found" });
-
     return res.json({ ok: true, user: toUserPayload(fresh) });
   })
 );
 
-// ✅ Update me (profile + legacy shippingAddress + optional replace shippingAddresses)
+// ✅ Update me (legacy + optional replace)
 router.put(
   "/me",
   auth,
   asyncHandler(async (req, res) => {
-    const {
-      fullName,
-      permanentAddress,
-      dateOfBirth,
-      gender,
-      shippingAddress,
-      shippingAddresses,
-      defaultShippingAddressId,
-    } = req.body;
+    const { fullName, permanentAddress, dateOfBirth, gender, shippingAddress, shippingAddresses, defaultShippingAddressId } = req.body;
 
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ ok: false, message: "User not found" });
 
-    // profile
     if (typeof fullName === "string") user.fullName = fullName.trim();
     if (typeof permanentAddress === "string") user.permanentAddress = permanentAddress;
     if (typeof gender === "string") user.gender = gender;
@@ -243,15 +213,11 @@ router.put(
       if (!isNaN(d.getTime())) user.dateOfBirth = d;
     }
 
-    // ✅ legacy single shippingAddress merge (old frontend support)
+    // legacy single merge
     if (shippingAddress && typeof shippingAddress === "object") {
-      user.shippingAddress = {
-        ...(user.shippingAddress || {}),
-        ...(shippingAddress || {}),
-      };
+      user.shippingAddress = { ...(user.shippingAddress || {}), ...(shippingAddress || {}) };
     }
 
-    // ✅ optional: replace full address book
     if (Array.isArray(shippingAddresses)) {
       user.shippingAddresses = shippingAddresses.map((x) => normShip(x));
     }
@@ -272,17 +238,13 @@ router.put(
    Base: /api/auth/shipping
 ========================= */
 
-// ✅ List all addresses
+// ✅ List
 router.get(
   "/shipping",
   auth,
   asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id);
-    if (!user) return res.status(404).json({ ok: false, message: "User not found" });
-
     await migrateSingleToMulti(user);
-    ensureSingleDefault(user);
-    await user.save();
 
     return res.json({
       ok: true,
@@ -292,7 +254,7 @@ router.get(
   })
 );
 
-// ✅ Add new address
+// ✅ Add
 router.post(
   "/shipping",
   auth,
@@ -303,13 +265,14 @@ router.post(
     const ship = normShip(req.body || {});
     const list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
 
-    // if first address -> default
+    // reject empty address (prevents blank save)
+    const hasData =
+      ship.fullName || ship.phone1 || ship.district || ship.upazila || ship.addressLine;
+    if (!hasData) return res.status(400).json({ ok: false, message: "Empty address not allowed" });
+
     if (!list.length) ship.isDefault = true;
 
-    // if request says isDefault true -> unset others
-    if (ship.isDefault) {
-      list.forEach((a) => (a.isDefault = false));
-    }
+    if (ship.isDefault) list.forEach((a) => (a.isDefault = false));
 
     list.unshift(ship);
     user.shippingAddresses = list;
@@ -321,7 +284,7 @@ router.post(
   })
 );
 
-// ✅ Update one address
+// ✅ Update
 router.put(
   "/shipping/:id",
   auth,
@@ -349,7 +312,6 @@ router.put(
     addr.addressLine = patch.addressLine;
     addr.note = patch.note;
 
-    // if set default requested
     if (req.body?.isDefault === true) {
       list.forEach((a) => (a.isDefault = String(a._id) === String(id)));
       user.defaultShippingAddressId = String(id);
@@ -363,7 +325,7 @@ router.put(
   })
 );
 
-// ✅ Delete one address
+// ✅ Delete
 router.delete(
   "/shipping/:id",
   auth,
@@ -373,18 +335,13 @@ router.delete(
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ ok: false, message: "User not found" });
 
-    const wasDefault = Array.isArray(user.shippingAddresses)
-      ? user.shippingAddresses.some((a) => String(a._id) === String(id) && a.isDefault)
-      : false;
-
     let list = Array.isArray(user.shippingAddresses) ? user.shippingAddresses : [];
     const before = list.length;
 
     list = list.filter((a) => String(a._id) !== String(id));
     if (list.length === before) return res.status(404).json({ ok: false, message: "Address not found" });
 
-    // if deleted default -> set first as default
-    if (String(user.defaultShippingAddressId || "") === String(id) || wasDefault) {
+    if (String(user.defaultShippingAddressId || "") === String(id)) {
       user.defaultShippingAddressId = "";
       if (list[0]) list[0].isDefault = true;
     }
@@ -423,10 +380,9 @@ router.post(
 );
 
 /* =========================
-   Password reset
+   Password reset (Phone + Full Name)
 ========================= */
 
-// ✅ Forgot Password (phone + fullName match -> set new password)
 router.post(
   "/forgot-password",
   asyncHandler(async (req, res) => {
@@ -436,16 +392,16 @@ router.post(
       return res.status(400).json({ ok: false, message: "Missing fields" });
     }
 
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ ok: false, message: "Password must be at least 6 characters" });
+    }
+
     const user = await User.findOne({ phone: String(phone).trim() });
     if (!user) return res.status(404).json({ ok: false, message: "User not found" });
 
     const a = String(user.fullName || "").trim().toLowerCase();
     const b = String(fullName).trim().toLowerCase();
-    if (a !== b) return res.status(401).json({ ok: false, message: "Name/phone did not match" });
-
-    if (String(newPassword).length < 6) {
-      return res.status(400).json({ ok: false, message: "Password must be at least 6 characters" });
-    }
+    if (a !== b) return res.status(401).json({ ok: false, message: "Name + phone not matched" });
 
     user.passwordHash = await bcrypt.hash(String(newPassword), 10);
     await user.save();
@@ -454,35 +410,7 @@ router.post(
   })
 );
 
-// ✅ Reset Password (same as forgot-password, kept for frontend compatibility)
-router.post(
-  "/reset-password",
-  asyncHandler(async (req, res) => {
-    const { phone, fullName, newPassword } = req.body;
-
-    if (!phone || !fullName || !newPassword) {
-      return res.status(400).json({ ok: false, message: "Missing fields" });
-    }
-
-    if (String(newPassword).length < 6) {
-      return res.status(400).json({ ok: false, message: "Password must be at least 6 characters" });
-    }
-
-    const user = await User.findOne({ phone: String(phone).trim() });
-    if (!user) return res.status(404).json({ ok: false, message: "User not found" });
-
-    const dbName = String(user.fullName || "").trim().toLowerCase();
-    const inName = String(fullName || "").trim().toLowerCase();
-
-    if (dbName !== inName) {
-      return res.status(401).json({ ok: false, message: "Name + phone not matched" });
-    }
-
-    user.passwordHash = await bcrypt.hash(String(newPassword), 10);
-    await user.save();
-
-    res.json({ ok: true, message: "Password updated" });
-  })
-);
+// compat
+router.post("/reset-password", (req, res, next) => router.handle({ ...req, url: "/forgot-password" }, res, next));
 
 export default router;
