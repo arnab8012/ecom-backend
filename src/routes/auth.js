@@ -226,13 +226,13 @@ router.put(
       if (!isNaN(d.getTime())) user.dateOfBirth = d;
     }
 
-    // ✅ legacy single shippingAddress merge (old frontend)
-    if (shippingAddress && typeof shippingAddress === "object") {
-      user.shippingAddress = {
-        ...(user.shippingAddress || {}),
-        ...(shippingAddress || {}),
-      };
-    }
+    // ✅ legacy single shippingAddress merge (old frontend) — safe
+if (shippingAddress && typeof shippingAddress === "object") {
+  const merged = { ...(user.shippingAddress || {}), ...(shippingAddress || {}) };
+  // ✅ only set if meaningful (blank data দিয়ে পুরান data নষ্ট হবে না)
+  if (hasMeaningfulData(merged)) user.shippingAddress = merged;
+}
+
 
     // ✅ optional: replace full address book
     if (Array.isArray(shippingAddresses)) {
