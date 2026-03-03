@@ -20,6 +20,7 @@ import bannersRoutes from "./src/routes/banners.js";
 import adminBannersRoutes from "./src/routes/adminBanners.js";
 import adminUploadRoutes from "./src/routes/adminUploadRoutes.js";
 import sitemapRoutes from "./src/routes/sitemap.js";
+import homeRoutes from "./src/routes/home.js";
 
 dotenv.config();
 console.log("🔥 SERVER FILE LOADED");
@@ -121,6 +122,7 @@ app.use("/api/categories", categoriesRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/api/banners", bannersRoutes);
+app.use("/api/home", homeRoutes);
 
 // ✅ Admin Routes
 app.use("/api/admin-auth", adminAuthRoutes);
