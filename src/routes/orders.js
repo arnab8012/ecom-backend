@@ -16,6 +16,7 @@ router.post(
   auth,
   asyncHandler(async (req, res) => {
     const { items, shipping, paymentMethod } = req.body;
+    const isFullPayment = paymentMethod === "FULL_PAYMENT";
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ ok: false, message: "No items" });
@@ -37,7 +38,8 @@ router.post(
     const dbProducts = await Product.find({ _id: { $in: dbIds }, isActive: true });
 
     // =========================
-    // ✅ 1) STOCK CHECK + DECREMENT (variant-based)
+    // ✅ 1) STOCK CHECK (always)
+    // ✅    STOCK DECREMENT only if NOT FULL_PAYMENT
     // =========================
     for (const it of items) {
       const qty = Math.max(1, Number(it.qty || 1));
@@ -48,32 +50,62 @@ router.post(
         return res.status(400).json({ ok: false, message: "Invalid product in cart" });
       }
 
+      // Variant-based products
       if (Array.isArray(p.variants) && p.variants.length) {
         const v = p.variants.find((vv) => String(vv.name) === variantName);
         if (!v) {
           return res.status(400).json({ ok: false, message: `Invalid variant for ${p.title}` });
         }
 
-        const r = await Product.updateOne(
-          { _id: p._id, isActive: true, "variants.name": variantName, "variants.stock": { $gte: qty } },
-          { $inc: { "variants.$.stock": -qty } }
-        );
-
-        if (r.modifiedCount !== 1) {
+        // ✅ stock check only
+        if (Number(v.stock) < qty) {
           return res.status(400).json({
             ok: false,
             message: `Stock Out: ${p.title} (${variantName})`
           });
         }
+
+        // ✅ decrement only for COD (or non-full-payment)
+        if (!isFullPayment) {
+          const r = await Product.updateOne(
+            {
+              _id: p._id,
+              isActive: true,
+              "variants.name": variantName,
+              "variants.stock": { $gte: qty }
+            },
+            { $inc: { "variants.$.stock": -qty } }
+          );
+
+          if (r.modifiedCount !== 1) {
+            return res.status(400).json({
+              ok: false,
+              message: `Stock Out: ${p.title} (${variantName})`
+            });
+          }
+        }
       } else {
         // fallback: যদি আপনার product এ root-level stock field থাকে
-        const r = await Product.updateOne(
-          { _id: p._id, isActive: true, stock: { $gte: qty } },
-          { $inc: { stock: -qty } }
-        );
+        const rootStock = Number(p.stock ?? 0);
 
-        if (r.modifiedCount !== 1) {
-          return res.status(400).json({ ok: false, message: `Stock Out: ${p.title}` });
+        // ✅ stock check only
+        if (rootStock < qty) {
+          return res.status(400).json({
+            ok: false,
+            message: `Stock Out: ${p.title}`
+          });
+        }
+
+        // ✅ decrement only for COD
+        if (!isFullPayment) {
+          const r = await Product.updateOne(
+            { _id: p._id, isActive: true, stock: { $gte: qty } },
+            { $inc: { stock: -qty } }
+          );
+
+          if (r.modifiedCount !== 1) {
+            return res.status(400).json({ ok: false, message: `Stock Out: ${p.title}` });
+          }
         }
       }
     }
@@ -108,10 +140,14 @@ router.post(
       userId: req.user._id,
       items: itemSnapshots,
       shipping,
-      paymentMethod: paymentMethod === "FULL_PAYMENT" ? "FULL_PAYMENT" : "COD",
+      paymentMethod: isFullPayment ? "FULL_PAYMENT" : "COD",
       deliveryCharge,
       subTotal,
       total,
+
+      // ✅ Full payment হলে initially UNPAID থাকবে, execute success হলে PAID হবে
+      paymentStatus: "UNPAID",
+
       status: "PLACED"
     });
 
