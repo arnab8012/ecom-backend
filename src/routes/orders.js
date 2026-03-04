@@ -167,5 +167,19 @@ router.get(
     res.json({ ok: true, orders });
   })
 );
+// ✅ Single Order Details (user)
+router.get(
+  "/:id",
+  auth,
+  asyncHandler(async (req, res) => {
+    const order = await Order.findOne({ _id: req.params.id, userId: req.user._id });
+
+    if (!order) {
+      return res.status(404).json({ ok: false, message: "Order not found" });
+    }
+
+    res.json({ ok: true, order });
+  })
+);
 
 export default router;
