@@ -21,6 +21,7 @@ import adminBannersRoutes from "./src/routes/adminBanners.js";
 import adminUploadRoutes from "./src/routes/adminUploadRoutes.js";
 import sitemapRoutes from "./src/routes/sitemap.js";
 import homeRoutes from "./src/routes/home.js";
+import bkashRoutes from "./src/routes/bkash.js";
 
 dotenv.config();
 console.log("🔥 SERVER FILE LOADED");
@@ -100,6 +101,7 @@ const corsOptions = {
 // ✅ Apply CORS (ONLY ONCE)
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
+app.use("/api/bkash", bkashRoutes);
 
 app.use(morgan("dev"));
 
