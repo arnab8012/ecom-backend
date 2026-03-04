@@ -226,5 +226,87 @@ router.post(
     return res.json(exec);
   })
 );
+// =========================
+// ✅ DEMO MODE (No credential needed)
+// =========================
 
+// ✅ DEMO create: orderId দিলে fake paymentID তৈরি করে order এ save করবে
+router.post(
+  "/demo-create",
+  auth,
+  asyncHandler(async (req, res) => {
+    const { orderId } = req.body;
+
+    const order = await Order.findOne({ _id: orderId, userId: req.user._id });
+    if (!order) return res.status(404).json({ ok: false, message: "Order not found" });
+
+    if (order.paymentMethod !== "FULL_PAYMENT") {
+      return res.status(400).json({ ok: false, message: "Not FULL_PAYMENT order" });
+    }
+
+    if (order.paymentStatus === "PAID") {
+      return res.status(400).json({ ok: false, message: "Already PAID" });
+    }
+
+    const paymentID = `DEMO_${Date.now()}`;
+    order.bkash = order.bkash || {};
+    order.bkash.paymentID = paymentID;
+    await order.save();
+
+    return res.json({ statusCode: "0000", paymentID });
+  })
+);
+
+// ✅ DEMO execute: payment success ধরে নিয়ে stock decrement + order PAID করবে
+router.post(
+  "/demo-execute",
+  auth,
+  asyncHandler(async (req, res) => {
+    const { orderId } = req.body;
+
+    const order = await Order.findOne({ _id: orderId, userId: req.user._id });
+    if (!order) return res.status(404).json({ ok: false, message: "Order not found" });
+
+    if (order.paymentMethod !== "FULL_PAYMENT") {
+      return res.status(400).json({ ok: false, message: "Not FULL_PAYMENT order" });
+    }
+
+    if (order.paymentStatus === "PAID") {
+      return res.status(400).json({ ok: false, message: "Already PAID" });
+    }
+
+    // ✅ payment success → now decrement stock
+    for (const it of order.items) {
+      const qty = Math.max(1, Number(it.qty || 1));
+      const variantName = String(it.variant || "");
+
+      const r = await Product.updateOne(
+        {
+          _id: it.productId,
+          isActive: true,
+          "variants.name": variantName,
+          "variants.stock": { $gte: qty },
+        },
+        { $inc: { "variants.$.stock": -qty, soldCount: qty } }
+      );
+
+      if (r.modifiedCount !== 1) {
+        return res.status(409).json({
+          ok: false,
+          message: "Payment success but stock out now. Please contact support.",
+        });
+      }
+    }
+
+    const trxID = `DEMO_TRX_${Date.now()}`;
+
+    order.paymentStatus = "PAID";
+    order.paidAt = new Date();
+    order.bkash = order.bkash || {};
+    order.bkash.trxID = trxID;
+    await order.save();
+
+    return res.json({ statusCode: "0000", trxID });
+  })
+);
 export default router;
