@@ -36,6 +36,18 @@ const orderSchema = new mongoose.Schema(
     deliveryCharge: { type: Number, default: 110 },
     subTotal: { type: Number, required: true },
     total: { type: Number, required: true },
+// ✅ Payment tracking
+    paymentStatus: {
+      type: String,
+      enum: ["UNPAID", "PAID"],
+      default: "UNPAID",
+    },
+    paidAt: { type: Date },
+
+    bkash: {
+      paymentID: { type: String, default: "" },
+      trxID: { type: String, default: "" },
+    },
 
     status: {
       type: String,
