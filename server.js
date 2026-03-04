@@ -101,7 +101,6 @@ const corsOptions = {
 // ✅ Apply CORS (ONLY ONCE)
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
-app.use("/api/bkash", bkashRoutes);
 
 app.use(morgan("dev"));
 
@@ -125,6 +124,8 @@ app.use("/api/products", productsRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/api/banners", bannersRoutes);
 app.use("/api/home", homeRoutes);
+app.use("/api/bkash", bkashRoutes);
+
 
 // ✅ Admin Routes
 app.use("/api/admin-auth", adminAuthRoutes);
