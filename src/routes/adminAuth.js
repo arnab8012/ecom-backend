@@ -1,6 +1,8 @@
 import express from "express";
 import jwt from "jsonwebtoken";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { adminAuth } from "../middleware/adminAuth.js";
+import AdminDeviceToken from "../models/AdminDeviceToken.js";
 
 const router = express.Router();
 
