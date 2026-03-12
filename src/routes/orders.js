@@ -151,6 +151,7 @@ router.post(
 
       status: "PLACED"
     });
+      await sendAdminNewOrderNotification(order);
 
     res.json({ ok: true, order });
   })
