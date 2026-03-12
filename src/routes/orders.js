@@ -3,6 +3,7 @@ import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import { auth } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { sendAdminNewOrderNotification } from "../utils/sendAdminNotification.js";
 
 const router = express.Router();
 
