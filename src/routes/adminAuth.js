@@ -62,4 +62,32 @@ router.get(
   })
 );
 
+router.post(
+  "/save-fcm-token",
+  adminAuth,
+  asyncHandler(async (req, res) => {
+    const { token, adminEmail, platform } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ ok: false, message: "Token required" });
+    }
+
+    const existing = await AdminDeviceToken.findOne({ token });
+
+    if (!existing) {
+      await AdminDeviceToken.create({
+        token,
+        adminEmail: adminEmail || "",
+        platform: platform || "android",
+      });
+    } else {
+      existing.adminEmail = adminEmail || existing.adminEmail;
+      existing.platform = platform || existing.platform;
+      await existing.save();
+    }
+
+    res.json({ ok: true, message: "FCM token saved" });
+  })
+);
+
 export default router;
