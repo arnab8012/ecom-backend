@@ -1,14 +1,25 @@
 import admin from "firebase-admin";
-import fs from "fs";
-import path from "path";
 
-const serviceAccountPath = path.resolve("service-account.json");
-const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
+let firebaseApp;
 
 if (!admin.apps.length) {
-  admin.initializeApp({
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+  if (!raw) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT environment variable is missing");
+  }
+
+  const serviceAccount = JSON.parse(raw);
+
+  if (serviceAccount.private_key) {
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+  }
+
+  firebaseApp = admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
+} else {
+  firebaseApp = admin.app();
 }
 
 export default admin;
