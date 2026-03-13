@@ -32,15 +32,20 @@ router.post(
       !shipping.upazila ||
       !shipping.addressLine
     ) {
-      return res.status(400).json({ ok: false, message: "Shipping info missing" });
+      return res
+        .status(400)
+        .json({ ok: false, message: "Shipping info missing" });
     }
 
     const dbIds = items.map((it) => it.productId);
-    const dbProducts = await Product.find({ _id: { $in: dbIds }, isActive: true });
+    const dbProducts = await Product.find({
+      _id: { $in: dbIds },
+      isActive: true,
+    });
 
     // =========================
-    // ✅ 1) STOCK CHECK (always)
-    // ✅    STOCK DECREMENT only if NOT FULL_PAYMENT
+    // 1) STOCK CHECK (always)
+    //    STOCK DECREMENT only if NOT FULL_PAYMENT
     // =========================
     for (const it of items) {
       const qty = Math.max(1, Number(it.qty || 1));
@@ -48,32 +53,38 @@ router.post(
 
       const p = dbProducts.find((x) => String(x._id) === String(it.productId));
       if (!p) {
-        return res.status(400).json({ ok: false, message: "Invalid product in cart" });
+        return res
+          .status(400)
+          .json({ ok: false, message: "Invalid product in cart" });
       }
 
       // Variant-based products
       if (Array.isArray(p.variants) && p.variants.length) {
         const v = p.variants.find((vv) => String(vv.name) === variantName);
-        if (!v) {
-          return res.status(400).json({ ok: false, message: `Invalid variant for ${p.title}` });
-        }
 
-        // ✅ stock check only
-        if (Number(v.stock) < qty) {
+        if (!v) {
           return res.status(400).json({
             ok: false,
-            message: `Stock Out: ${p.title} (${variantName})`
+            message: `Invalid variant for ${p.title}`,
           });
         }
 
-        // ✅ decrement only for COD (or non-full-payment)
+        // stock check only
+        if (Number(v.stock) < qty) {
+          return res.status(400).json({
+            ok: false,
+            message: `Stock Out: ${p.title} (${variantName})`,
+          });
+        }
+
+        // decrement only for COD (or non-full-payment)
         if (!isFullPayment) {
           const r = await Product.updateOne(
             {
               _id: p._id,
               isActive: true,
               "variants.name": variantName,
-              "variants.stock": { $gte: qty }
+              "variants.stock": { $gte: qty },
             },
             { $inc: { "variants.$.stock": -qty } }
           );
@@ -81,23 +92,23 @@ router.post(
           if (r.modifiedCount !== 1) {
             return res.status(400).json({
               ok: false,
-              message: `Stock Out: ${p.title} (${variantName})`
+              message: `Stock Out: ${p.title} (${variantName})`,
             });
           }
         }
       } else {
-        // fallback: যদি আপনার product এ root-level stock field থাকে
+        // fallback: root-level stock field
         const rootStock = Number(p.stock ?? 0);
 
-        // ✅ stock check only
+        // stock check only
         if (rootStock < qty) {
           return res.status(400).json({
             ok: false,
-            message: `Stock Out: ${p.title}`
+            message: `Stock Out: ${p.title}`,
           });
         }
 
-        // ✅ decrement only for COD
+        // decrement only for COD
         if (!isFullPayment) {
           const r = await Product.updateOne(
             { _id: p._id, isActive: true, stock: { $gte: qty } },
@@ -105,18 +116,25 @@ router.post(
           );
 
           if (r.modifiedCount !== 1) {
-            return res.status(400).json({ ok: false, message: `Stock Out: ${p.title}` });
+            return res.status(400).json({
+              ok: false,
+              message: `Stock Out: ${p.title}`,
+            });
           }
         }
       }
     }
 
     // =========================
-    // ✅ 2) SNAPSHOT (order items)
+    // 2) SNAPSHOT (order items)
     // =========================
     const itemSnapshots = items.map((it) => {
       const p = dbProducts.find((x) => String(x._id) === String(it.productId));
-      if (!p) throw Object.assign(new Error("Invalid product in cart"), { statusCode: 400 });
+      if (!p) {
+        throw Object.assign(new Error("Invalid product in cart"), {
+          statusCode: 400,
+        });
+      }
 
       const img = Array.isArray(p.images) && p.images.length ? p.images[0] : "";
       const qty = Math.max(1, Number(it.qty || 1));
@@ -128,7 +146,7 @@ router.post(
         image: img,
         variant: it.variant || "",
         qty,
-        price
+        price,
       };
     });
 
@@ -145,13 +163,24 @@ router.post(
       deliveryCharge,
       subTotal,
       total,
-
-      // ✅ Full payment হলে initially UNPAID থাকবে, execute success হলে PAID হবে
       paymentStatus: "UNPAID",
-
-      status: "PLACED"
+      status: "PLACED",
     });
-      await sendAdminNewOrderNotification(order);
+
+    console.log("[ORDER] Created:", {
+      orderId: String(order._id),
+      orderNo: order.orderNo,
+      total: order.total,
+      userId: String(req.user._id),
+    });
+
+    try {
+      console.log("[ORDER] About to send admin notification for:", order.orderNo);
+      const notifyResult = await sendAdminNewOrderNotification(order);
+      console.log("[ORDER] Admin notification result:", notifyResult);
+    } catch (err) {
+      console.error("[ORDER] Admin notification failed:", err?.message || err);
+    }
 
     res.json({ ok: true, order });
   })
@@ -163,18 +192,25 @@ router.get(
   asyncHandler(async (req, res) => {
     const { status } = req.query;
     const q = { userId: req.user._id };
-    if (status && status !== "ALL") q.status = status;
+
+    if (status && status !== "ALL") {
+      q.status = status;
+    }
 
     const orders = await Order.find(q).sort({ createdAt: -1 });
     res.json({ ok: true, orders });
   })
 );
-// ✅ Single Order Details (user)
+
+// Single Order Details (user)
 router.get(
   "/:id",
   auth,
   asyncHandler(async (req, res) => {
-    const order = await Order.findOne({ _id: req.params.id, userId: req.user._id });
+    const order = await Order.findOne({
+      _id: req.params.id,
+      userId: req.user._id,
+    });
 
     if (!order) {
       return res.status(404).json({ ok: false, message: "Order not found" });
