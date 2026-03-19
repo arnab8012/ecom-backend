@@ -14,6 +14,7 @@ import adminAuthRoutes from "./src/routes/adminAuth.js";
 import categoriesRoutes from "./src/routes/categories.js";
 import productsRoutes from "./src/routes/products.js";
 import ordersRoutes from "./src/routes/orders.js";
+import reviewsRoutes from "./src/routes/reviews.js";
 import adminRoutes from "./src/routes/admin.js";
 
 import bannersRoutes from "./src/routes/banners.js";
@@ -122,6 +123,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoriesRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/orders", ordersRoutes);
+app.use("/api/reviews", reviewsRoutes);
 app.use("/api/banners", bannersRoutes);
 app.use("/api/home", homeRoutes);
 app.use("/api/bkash", bkashRoutes);
