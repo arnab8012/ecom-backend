@@ -31,7 +31,10 @@ soldCount: { type: Number, default: 0 },
 
     deliveryDays: { type: String, default: "3-5 days" },
 
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+
+    averageRating: { type: Number, default: 0 },
+    reviewCount: { type: Number, default: 0 }
   },
   { timestamps: true }
 );
